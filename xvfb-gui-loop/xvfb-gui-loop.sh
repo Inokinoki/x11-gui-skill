@@ -111,6 +111,13 @@ cmd_attach() {
     display_available "$display" || { error "Cannot access display $display"; return 1; }
 
     export DISPLAY="$display"
+
+    # Try to get xauth cookie for this display
+    local auth_cookie=$(xauth list "$display" 2>/dev/null | awk '{print $3}')
+    if [ -n "$auth_cookie" ]; then
+        export XAUTHORITY="$HOME/.Xauthority"
+    fi
+
     save_session
     log "Attached to display: $display"
     echo "DISPLAY=$display"
