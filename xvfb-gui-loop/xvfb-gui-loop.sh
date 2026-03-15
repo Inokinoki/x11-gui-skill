@@ -202,56 +202,222 @@ cmd_record() {
     echo "RECORDING_FILE=$output"
 }
 
-# Input commands (all need xdotool)
-cmd_type() { load_session || true; check_xdotool || return 1; [ -z "$1" ] && { error "type requires text"; return 1; }; log "Typing: $1"; DISPLAY="$DISPLAY" xdotool type -- "$1"; }
-cmd_key() { load_session || true; check_xdotool || return 1; [ -z "$1" ] && { error "key requires keysym"; return 1; }; log "Sending key: $1"; DISPLAY="$DISPLAY" xdotool key "$1"; }
-cmd_click() { load_session || true; check_xdotool || return 1; log "Clicking button ${1:-1}"; DISPLAY="$DISPLAY" xdotool click "${1:-1}"; }
-cmd_clickat() {
-    load_session || true; check_xdotool || return 1
-    [ -z "$1" ] || [ -z "$2" ] && { error "clickat requires x y"; return 1; }
-    log "Clicking at ($1,$2)"; DISPLAY="$DISPLAY" xdotool mousemove "$1" "$2" click "${3:-1}"
-}
-cmd_move() {
-    load_session || true; check_xdotool || return 1
-    [ -z "$1" ] || [ -z "$2" ] && { error "move requires x y"; return 1; }
-    log "Moving to ($1,$2)"; DISPLAY="$DISPLAY" xdotool mousemove "$1" "$2"
-}
-cmd_drag() {
-    load_session || true; check_xdotool || return 1
-    [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ] && { error "drag requires x1 y1 x2 y2"; return 1; }
-    log "Dragging ($1,$2) -> ($3,$4)"
-    DISPLAY="$DISPLAY" xdotool mousemove "$1" "$2"
-    DISPLAY="$DISPLAY" xdotool mousedown "${5:-1}"
-    usleep 100000
-    DISPLAY="$DISPLAY" xdotool mousemove "$3" "$4"
-    DISPLAY="$DISPLAY" xdotool mouseup "${5:-1}"
+# Input commands (all need xdotool) - with validation
+cmd_type() {
+    load_session || true
+    check_xdotool || return 1
+    local text="$1"
+    [ -z "$text" ] && { error "type requires text"; return 1; }
+
+    local before_win=$(xdotool getactivewindow 2>/dev/null)
+    log "Typing: $text"
+
+    if DISPLAY="$DISPLAY" xdotool type -- "$text"; then
+        echo "TYPE_EVENT=success"
+        echo "TEXT_LENGTH=${#text}"
+        echo "TARGET_WINDOW=$before_win"
+    else
+        echo "TYPE_EVENT=failed"
+        return 1
+    fi
 }
 
-# Window commands
+cmd_key() {
+    load_session || true
+    check_xdotool || return 1
+    local keysym="$1"
+    [ -z "$keysym" ] && { error "key requires keysym"; return 1; }
+
+    log "Sending key: $keysym"
+    if DISPLAY="$DISPLAY" xdotool key "$keysym"; then
+        echo "KEY_EVENT=$keysym"
+        echo "KEY_STATUS=success"
+    else
+        echo "KEY_EVENT=$keysym"
+        echo "KEY_STATUS=failed"
+        return 1
+    fi
+}
+
+cmd_click() {
+    load_session || true
+    check_xdotool || return 1
+    local button="${1:-1}"
+
+    local before_pos=$(xdotool getmouselocation 2>/dev/null)
+    local before_x=$(echo "$before_pos" | grep -oP 'x:\K-?[0-9]+')
+    local before_y=$(echo "$before_pos" | grep -oP 'y:\K-?[0-9]+')
+
+    log "Clicking button $button"
+    if DISPLAY="$DISPLAY" xdotool click "$button"; then
+        echo "CLICK_EVENT=button$button"
+        echo "CLICK_STATUS=success"
+        # Verify mouse position unchanged
+        local after_pos=$(xdotool getmouselocation 2>/dev/null)
+        local after_x=$(echo "$after_pos" | grep -oP 'x:\K-?[0-9]+')
+        local after_y=$(echo "$after_pos" | grep -oP 'y:\K-?[0-9]+')
+        if [ "$before_x" = "$after_x" ] && [ "$before_y" = "$after_y" ]; then
+            echo "MOUSE_VERIFIED=x:$after_x,y:$after_y"
+        fi
+    else
+        echo "CLICK_EVENT=button$button"
+        echo "CLICK_STATUS=failed"
+        return 1
+    fi
+}
+
+cmd_clickat() {
+    load_session || true
+    check_xdotool || return 1
+    local x="$1" y="$2" button="${3:-1}"
+    [ -z "$x" ] || [ -z "$y" ] && { error "clickat requires x y"; return 1; }
+
+    log "Clicking at ($x,$y) button $button"
+
+    if DISPLAY="$DISPLAY" xdotool mousemove "$x" "$y" click "$button"; then
+        echo "CLICKAT_EVENT=x:$x,y:$y,button:$button"
+        echo "CLICKAT_STATUS=success"
+        # Verify mouse position
+        local after_pos=$(xdotool getmouselocation 2>/dev/null)
+        local after_x=$(echo "$after_pos" | grep -oP 'x:\K-?[0-9]+')
+        local after_y=$(echo "$after_pos" | grep -oP 'y:\K-?[0-9]+')
+        echo "MOUSE_VERIFIED=x:$after_x,y:$after_y"
+    else
+        echo "CLICKAT_EVENT=x:$x,y:$y,button:$button"
+        echo "CLICKAT_STATUS=failed"
+        return 1
+    fi
+}
+
+cmd_move() {
+    load_session || true
+    check_xdotool || return 1
+    local x="$1" y="$2"
+    [ -z "$x" ] || [ -z "$y" ] && { error "move requires x y"; return 1; }
+
+    log "Moving to ($x,$y)"
+
+    if DISPLAY="$DISPLAY" xdotool mousemove "$x" "$y"; then
+        echo "MOVE_EVENT=destination:$x,$y"
+        # Verify position
+        local after_pos=$(xdotool getmouselocation 2>/dev/null)
+        local after_x=$(echo "$after_pos" | grep -oP 'x:\K-?[0-9]+')
+        local after_y=$(echo "$after_pos" | grep -oP 'y:\K-?[0-9]+')
+        if [ "$after_x" = "$x" ] && [ "$after_y" = "$y" ]; then
+            echo "MOVE_VERIFIED=x:$after_x,y:$after_y"
+        else
+            echo "MOVE_MISMATCH=expected:$x,$y actual:$after_x,$after_y"
+        fi
+    else
+        echo "MOVE_EVENT=destination:$x,$y"
+        echo "MOVE_STATUS=failed"
+        return 1
+    fi
+}
+
+cmd_drag() {
+    load_session || true
+    check_xdotool || return 1
+    local x1="$1" y1="$2" x2="$3" y2="$4" button="${5:-1}"
+    [ -z "$x1" ] || [ -z "$y1" ] || [ -z "$x2" ] || [ -z "$y2" ] && { error "drag requires x1 y1 x2 y2"; return 1; }
+
+    log "Dragging ($x1,$y1) -> ($x2,$y2)"
+
+    DISPLAY="$DISPLAY" xdotool mousemove "$x1" "$y1"
+    DISPLAY="$DISPLAY" xdotool mousedown "$button"
+    usleep 100000
+    DISPLAY="$DISPLAY" xdotool mousemove "$x2" "$y2"
+    DISPLAY="$DISPLAY" xdotool mouseup "$button"
+
+    echo "DRAG_EVENT=from:$x1,$y1 to:$x2,$y2 button:$button"
+    # Verify final position
+    local after_pos=$(xdotool getmouselocation 2>/dev/null)
+    local after_x=$(echo "$after_pos" | grep -oP 'x:\K-?[0-9]+')
+    local after_y=$(echo "$after_pos" | grep -oP 'y:\K-?[0-9]+')
+    echo "MOUSE_VERIFIED=x:$after_x,y:$after_y"
+}
+
+# Window commands with validation
 cmd_search() {
-    load_session || true; check_xdotool || return 1
-    [ -z "$1" ] && { error "search requires pattern"; return 1; }
-    log "Searching for: $1"
-    local results=$(DISPLAY="$DISPLAY" xdotool search --name "$1" 2>/dev/null)
-    [ -z "$results" ] && { log "No windows found"; return 0; }
+    load_session || true
+    check_xdotool || return 1
+    local pattern="$1"
+    [ -z "$pattern" ] && { error "search requires pattern"; return 1; }
+
+    log "Searching for: $pattern"
+    local results=$(DISPLAY="$DISPLAY" xdotool search --name "$pattern" 2>/dev/null)
+
+    if [ -z "$results" ]; then
+        echo "SEARCH_PATTERN=$pattern"
+        echo "SEARCH_RESULTS=0"
+        echo "SEARCH_STATUS=no_match"
+        return 0
+    fi
+
+    local count=$(echo "$results" | wc -l)
+    echo "SEARCH_PATTERN=$pattern"
+    echo "SEARCH_RESULTS=$count"
+    echo "SEARCH_STATUS=success"
+
     while IFS= read -r winid; do
         local name=$(DISPLAY="$DISPLAY" xdotool getwindowname "$winid" 2>/dev/null || echo "Untitled")
         echo "WINDOW=$winid NAME=\"$name\""
     done <<< "$results"
 }
+
 cmd_activate() {
-    load_session || true; check_xdotool || return 1
-    [ -z "$1" ] && { error "activate requires window_id"; return 1; }
-    log "Activating window $1"; DISPLAY="$DISPLAY" xdotool windowactivate --sync "$1"
+    load_session || true
+    check_xdotool || return 1
+    local window_id="$1"
+    [ -z "$window_id" ] && { error "activate requires window_id"; return 1; }
+
+    local before=$(xdotool getactivewindow 2>/dev/null)
+    local before_name=$(xdotool getwindowname "$before" 2>/dev/null || echo "unknown")
+
+    log "Activating window $window_id (current: $before_name)"
+
+    if DISPLAY="$DISPLAY" xdotool windowactivate --sync "$window_id"; then
+        local after=$(xdotool getactivewindow 2>/dev/null)
+        if [ "$after" = "$window_id" ]; then
+            local after_name=$(xdotool getwindowname "$after" 2>/dev/null || echo "unknown")
+            echo "ACTIVATE_EVENT=window:$window_id"
+            echo "ACTIVATE_STATUS=verified"
+            echo "WINDOW_NAME=$after_name"
+        else
+            echo "ACTIVATE_EVENT=window:$window_id"
+            echo "ACTIVATE_STATUS=mismatch"
+            echo "EXPECTED=$window_id"
+            echo "ACTUAL=$after"
+        fi
+    else
+        echo "ACTIVATE_EVENT=window:$window_id"
+        echo "ACTIVATE_STATUS=failed"
+        return 1
+    fi
 }
+
 cmd_list() {
-    load_session || true; check_xdotool || return 1
+    load_session || true
+    check_xdotool || return 1
     log "Windows on $DISPLAY:"
+
     local windows=$(DISPLAY="$DISPLAY" xdotool search --all "" 2>/dev/null)
-    [ -n "$windows" ] && while IFS= read -r winid; do
-        local name=$(DISPLAY="$DISPLAY" xdotool getwindowname "$winid" 2>/dev/null || echo "Untitled")
-        echo "WINDOW=$winid NAME=\"$name\""
-    done <<< "$windows" || log "No windows found"
+    if [ -n "$windows" ]; then
+        local count=$(echo "$windows" | wc -l)
+        echo "WINDOW_COUNT=$count"
+        while IFS= read -r winid; do
+            local name=$(DISPLAY="$DISPLAY" xdotool getwindowname "$winid" 2>/dev/null || echo "Untitled")
+            local geom=$(DISPLAY="$DISPLAY" xdotool getwindowgeometry --shell "$winid" 2>/dev/null)
+            local x=$(echo "$geom" | grep "^X=" | cut -d= -f2)
+            local y=$(echo "$geom" | grep "^Y=" | cut -d= -f2)
+            local w=$(echo "$geom" | grep "^WIDTH=" | cut -d= -f2)
+            local h=$(echo "$geom" | grep "^HEIGHT=" | cut -d= -f2)
+            echo "WINDOW=$winid X=$x Y=$y W=$w H=$h NAME=\"$name\""
+        done <<< "$windows"
+    else
+        echo "WINDOW_COUNT=0"
+        log "No windows found"
+    fi
 }
 
 # Command: info
