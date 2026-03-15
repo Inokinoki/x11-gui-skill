@@ -181,17 +181,14 @@ cmd_capture() {
 
     case "$tool" in
         maim)
-            if ! maim -d "$DISPLAY" "$output" 2>/dev/null; then
-                # Try with xvfb-run if direct fails
-                xvfb-run -a maim "$output"
-            fi
+            DISPLAY="$DISPLAY" maim "$output"
             ;;
         ffmpeg)
             local dims=$(xdpyinfo -display "$DISPLAY" 2>/dev/null | grep "dimensions:" | awk '{print $2}' || echo "1920x1080")
-            ffmpeg -f x11grab -video_size "$dims" -i "$DISPLAY" -frames:v 1 -q:v 2 "$output" 2>/dev/null
+            DISPLAY="$DISPLAY" ffmpeg -f x11grab -video_size "$dims" -i "$DISPLAY" -frames:v 1 -q:v 2 "$output" 2>/dev/null
             ;;
         import)
-            import -display "$DISPLAY" -window root "$output"
+            DISPLAY="$DISPLAY" import -window root "$output"
             ;;
     esac
 
