@@ -47,26 +47,23 @@ xvfb-gui-loop.sh clickat 500 300 1
 
 **Required:**
 - `xvfb` - Virtual X server
-- `xdotool` - Input simulation
-
-**Optional (need one for screenshots):**
-- `maim` - Recommended for screenshots
-- `ffmpeg` - Alternative for screenshots, required for video recording
+- `xdotool` - Input simulation (for type/key/click commands)
+- `maim` or `ffmpeg` or `import` - One screenshot tool required
 
 **Optional:**
+- `ffmpeg` - Required for video recording
 - `xpra` - For shared displays (multi-agent sessions)
 
 Install:
 ```bash
-# Minimal (screenshots only)
+# Minimal (screenshots + input)
 sudo apt install xvfb xdotool maim
 
 # With video recording
 sudo apt install xvfb xdotool maim ffmpeg
-
-# With xpra support
-sudo apt install xvfb xdotool maim ffmpeg xpra
 ```
+
+**Note:** Snap-packaged applications (like Firefox on Ubuntu) cannot access Xvfb displays due to sandboxing. Use non-snap alternatives or native X11 applications like `xeyes`, `xcalc`, `xclock`, etc.
 
 ## Xpra Support
 
